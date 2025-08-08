@@ -1,21 +1,41 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // Add navigation hook
 import { FileUpload } from '@/components/FileUpload';
 import { SkillsDisplay } from '@/components/SkillsDisplay';
 import { JobResults } from '@/components/JobResults';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Brain, Briefcase, Sparkles, Zap, Target, Clock } from 'lucide-react';
+import { Brain, Briefcase, Sparkles, Zap, Target, Clock, User, Settings, LogOut, ChevronDown } from 'lucide-react';
 import { mockJobs, extractSkillsFromResume, calculateJobMatches } from '@/data/mockJobs';
 import { Job } from '@/components/JobCard';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Index = () => {
+  const { currentUser, logout } = useAuth();
+  const navigate = useNavigate(); // Initialize navigation
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [extractedSkills, setExtractedSkills] = useState<string[]>([]);
   const [jobResults, setJobResults] = useState<Job[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  
+  // Profile dropdown state
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleFileUpload = async (file: File) => {
     if (uploadedFile && file === uploadedFile) {
@@ -79,21 +99,163 @@ const Index = () => {
     }
   };
 
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setIsDropdownOpen(false);
+      toast({
+        title: "Logged Out",
+        description: "You have been successfully logged out.",
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  // Handle profile navigation - UPDATED TO USE REACT ROUTER
+  const handleProfileClick = () => {
+    setIsDropdownOpen(false);
+    navigate('/profile'); // Navigate to profile page
+  };
+
+  // Handle settings navigation - UPDATED TO USE REACT ROUTER  
+  const handleSettingsClick = () => {
+    setIsDropdownOpen(false);
+    navigate('/profile'); // For now, both go to profile page (you can create separate settings page later)
+  };
+
+  // Get user's initials for avatar
+  const getUserInitials = (name: string | null | undefined): string => {
+    if (!name) return 'U';
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  };
+
+  // Get display name
+  const getDisplayName = (): string => {
+    if (currentUser?.displayName) {
+      return currentUser.displayName;
+    }
+    if (currentUser?.email) {
+      return currentUser.email.split('@')[0];
+    }
+    return 'User';
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
-      {/* Header */}
+      {/* Enhanced Header with User Profile */}
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary-hover rounded-lg flex items-center justify-center">
-                <Brain className="w-6 h-6 text-white" />
+                <Briefcase className="text-white" size={32} />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Job Matcher AI</h1>
                 <p className="text-sm text-muted-foreground">Find your dream job effortlessly</p>
               </div>
             </div>
+            
+            {/* User Profile Section */}
+            {currentUser && (
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  aria-label="User menu"
+                  aria-expanded={isDropdownOpen}
+                >
+                  {/* User Avatar */}
+                  <div className="relative">
+                    {currentUser.photoURL ? (
+                      <img
+                        src={currentUser.photoURL}
+                        alt={getDisplayName()}
+                        className="w-10 h-10 rounded-full object-cover border-2 border-primary/20"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary-hover flex items-center justify-center text-white text-sm font-medium">
+                        {getUserInitials(currentUser.displayName || currentUser.email)}
+                      </div>
+                    )}
+                    {/* Online indicator */}
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-background rounded-full"></div>
+                  </div>
+
+                  {/* User Name - Hidden on mobile */}
+                  <div className="hidden sm:block text-left">
+                    <p className="text-sm font-medium text-foreground">
+                      {getDisplayName()}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate max-w-[120px]">
+                      {currentUser.email}
+                    </p>
+                  </div>
+
+                  {/* Dropdown Arrow */}
+                  <ChevronDown 
+                    className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${
+                      isDropdownOpen ? 'rotate-180' : ''
+                    }`} 
+                  />
+                </button>
+
+                {/* Dropdown Menu */}
+                {isDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-64 bg-background border border-border rounded-lg shadow-lg py-2 z-50 animate-in slide-in-from-top-2 duration-200">
+                    {/* User Info Header */}
+                    <div className="px-4 py-3 border-b border-border">
+                      <p className="text-sm font-medium text-foreground">
+                        {getDisplayName()}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {currentUser.email}
+                      </p>
+                    </div>
+
+                    {/* Menu Items */}
+                    <div className="py-2">
+                      {/* Profile Link */}
+                      <button
+                        onClick={handleProfileClick}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted/50 transition-colors duration-200"
+                      >
+                        <User className="w-4 h-4" />
+                        View Profile
+                      </button>
+
+                      {/* Account Settings */}
+                      <button
+                        onClick={handleSettingsClick}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-foreground hover:bg-muted/50 transition-colors duration-200"
+                      >
+                        <Settings className="w-4 h-4" />
+                        Account Settings
+                      </button>
+
+                      {/* Divider */}
+                      <div className="my-2 border-t border-border"></div>
+
+                      {/* Logout */}
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors duration-200"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Log Out
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </header>
