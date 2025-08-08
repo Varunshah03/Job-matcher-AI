@@ -108,7 +108,7 @@ export const mockJobs: Job[] = [
 ];
 
 export const extractSkillsFromResume = (resumeText: string): string[] => {
-  // Simulated skill extraction - in a real app, this would use NLP/AI
+  // Simulated skill extraction - intended for testing only
   const skillsDatabase = [
     'JavaScript', 'TypeScript', 'React', 'Vue', 'Angular', 'Node.js', 'Express',
     'Python', 'Django', 'Flask', 'Java', 'Spring Boot', 'C#', '.NET',
@@ -130,11 +130,7 @@ export const extractSkillsFromResume = (resumeText: string): string[] => {
     }
   });
 
-  // Add some random skills for demo purposes if none found
-  if (foundSkills.length === 0) {
-    return ['JavaScript', 'React', 'Node.js', 'HTML', 'CSS', 'Git'];
-  }
-
+  // Return empty array instead of mock skills
   return foundSkills;
 };
 

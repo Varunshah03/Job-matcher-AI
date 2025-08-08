@@ -1,80 +1,110 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileUpload } from '@/components/FileUpload';
-import { SkillsDisplay } from '@/components/SkillsDisplay';
 import { JobResults } from '@/components/JobResults';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Brain, Briefcase, Sparkles, Zap, Target, Clock } from 'lucide-react';
-import { mockJobs, extractSkillsFromResume, calculateJobMatches } from '@/data/mockJobs';
-import { Job } from '@/components/JobCard';
+import { Brain, Sparkles, Zap, Target, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+
+interface Job {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  description: string;
+  requirements: string[];
+  skills: string[];
+  matchScore: number;      // <-- camelCase
+  postedDate: string;      // <-- camelCase
+  source: "Indeed" | "LinkedIn" | "Glassdoor";
+  url: string;
+  salary?: string;
+  jobType?: string;
+  experienceLevel?: string;
+}
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const Index = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [extractedSkills, setExtractedSkills] = useState<string[]>([]);
   const [jobResults, setJobResults] = useState<Job[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const navigate = useNavigate();
 
-  const handleFileUpload = async (file: File) => {
-    if (uploadedFile && file === uploadedFile) {
-      // Remove file
+  const handleFileUpload = async (file: File | null) => {
+    if (!file) {
       setUploadedFile(null);
-      setExtractedSkills([]);
       setJobResults([]);
+      navigate('/', { replace: true });
       return;
     }
 
     setIsUploading(true);
     setUploadedFile(file);
-    
-    try {
-      // Simulate file processing delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      setIsExtracting(true);
-      setIsUploading(false);
-      
-      // Simulate resume text extraction and skill parsing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const mockResumeText = `
-        Software Developer with 5+ years of experience in React, JavaScript, TypeScript, Node.js, 
-        Python, AWS, Docker, PostgreSQL, and Git. Experience with HTML, CSS, and modern web development.
-        Strong background in full-stack development and cloud technologies.
-      `;
-      
-      const skills = extractSkillsFromResume(mockResumeText);
-      setExtractedSkills(skills);
-      setIsExtracting(false);
-      
+    setIsUploading(false);
+  };
+
+  const handleSkillsExtracted = async (skills: string[]) => {
+    if (skills.length === 0) {
       toast({
-        title: "Skills Extracted Successfully!",
-        description: `Found ${skills.length} relevant skills in your resume.`,
-      });
-      
-      // Start job matching
-      setIsSearching(true);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      const matchedJobs = calculateJobMatches(skills, mockJobs);
-      setJobResults(matchedJobs);
-      setIsSearching(false);
-      
-      toast({
-        title: "Job Matching Complete!",
-        description: `Found ${matchedJobs.length} potential job matches.`,
-      });
-      
-    } catch (error) {
-      toast({
-        title: "Error Processing Resume",
-        description: "Please try uploading your resume again.",
+        title: "No Skills Extracted",
+        description: "No valid skills found in your resume.",
         variant: "destructive",
       });
-      setIsUploading(false);
-      setIsExtracting(false);
+      return;
+    }
+
+    toast({
+      title: "Skills Extracted Successfully!",
+      description: `Found ${skills.length} relevant skills in your resume.`,
+    });
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(`${API_URL}/api/search-jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skills,
+          location: 'Remote',
+          max_jobs: 20
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Search failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      // Map snake_case to camelCase
+      const jobs: Job[] = data.map((job: any) => ({
+        ...job,
+        matchScore: job.match_score,
+        postedDate: job.posted_date,
+        jobType: job.job_type,
+        experienceLevel: job.experience_level,
+        source:
+          job.source === "Indeed"
+            ? "Indeed"
+            : job.source === "LinkedIn"
+            ? "LinkedIn"
+            : "Glassdoor",
+      }));
+      setJobResults(jobs);
+
+      toast({
+        title: "Job Search Complete!",
+        description: `Found ${jobs.length} potential job matches.`,
+      });
+      navigate('/jobmatch');
+    } catch (error) {
+      toast({
+        title: "Error Searching Jobs",
+        description: "Failed to fetch job listings. Please try again.",
+        variant: "destructive",
+      });
+      setJobResults([]);
+    } finally {
       setIsSearching(false);
     }
   };
@@ -107,19 +137,16 @@ const Index = () => {
                 <Sparkles className="w-4 h-4" />
                 AI-Powered Job Matching
               </div>
-              
               <h2 className="text-4xl md:text-6xl font-bold text-foreground mb-6">
                 Find Your Perfect Job with{' '}
                 <span className="bg-gradient-to-r from-primary to-primary-hover bg-clip-text text-transparent">
                   AI Intelligence
                 </span>
               </h2>
-              
               <p className="text-xl text-muted-foreground mb-8 leading-relaxed">
                 Upload your resume and let our AI analyze your skills to find the most relevant job opportunities 
                 from top platforms like Indeed, LinkedIn, and Glassdoor.
               </p>
-              
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
                 <div className="flex flex-col items-center text-center p-6">
                   <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
@@ -128,7 +155,6 @@ const Index = () => {
                   <h3 className="font-semibold text-lg mb-2">Smart Analysis</h3>
                   <p className="text-muted-foreground">AI extracts skills and experience from your resume automatically</p>
                 </div>
-                
                 <div className="flex flex-col items-center text-center p-6">
                   <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
                     <Target className="w-8 h-8 text-primary" />
@@ -136,7 +162,6 @@ const Index = () => {
                   <h3 className="font-semibold text-lg mb-2">Perfect Matches</h3>
                   <p className="text-muted-foreground">Get jobs ranked by compatibility with your unique skill set</p>
                 </div>
-                
                 <div className="flex flex-col items-center text-center p-6">
                   <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
                     <Clock className="w-8 h-8 text-primary" />
@@ -153,23 +178,13 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 pb-16">
         <div className="max-w-4xl mx-auto space-y-8">
-          {/* File Upload */}
           <FileUpload 
             onFileUpload={handleFileUpload}
             uploadedFile={uploadedFile}
             isUploading={isUploading}
+            onSkillsExtracted={handleSkillsExtracted}
           />
-
-          {/* Skills Display */}
-          {(uploadedFile || extractedSkills.length > 0) && (
-            <SkillsDisplay 
-              skills={extractedSkills}
-              isLoading={isExtracting}
-            />
-          )}
-
-          {/* Job Results */}
-          {(extractedSkills.length > 0 || isSearching) && (
+          {(jobResults.length > 0 || isSearching) && (
             <JobResults 
               jobs={jobResults}
               isLoading={isSearching}
