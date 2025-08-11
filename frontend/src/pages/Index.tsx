@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileUpload } from '@/components/FileUpload';
-import { JobResults } from '@/components/JobResults';
+import JobResults from '@/components/JobResults';
 import { Brain, Sparkles, Zap, Target, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
@@ -13,13 +13,30 @@ interface Job {
   description: string;
   requirements: string[];
   skills: string[];
-  matchScore: number;      // <-- camelCase
-  postedDate: string;      // <-- camelCase
-  source: "Indeed" | "LinkedIn" | "Glassdoor";
+  match_score: number;
+  posted_date: string;
+  source: string;
   url: string;
   salary?: string;
   jobType?: string;
   experienceLevel?: string;
+}
+
+interface JobResponse {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  description: string;
+  requirements: string[];
+  skills: string[];
+  match_score: number;
+  posted_date: string;
+  source: string;
+  url: string;
+  salary?: string;
+  job_type?: string;
+  experience_level?: string;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -30,6 +47,25 @@ const Index = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
+
+  const transformJobResponse = (jobs: JobResponse[]): Job[] => {
+    return jobs.map(job => ({
+      id: job.id,
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      description: job.description,
+      requirements: job.requirements,
+      skills: job.skills,
+      match_score: job.match_score,
+      posted_date: job.posted_date,
+      source: job.source,
+      url: job.url,
+      salary: job.salary,
+      jobType: job.job_type,
+      experienceLevel: job.experience_level,
+    }));
+  };
 
   const handleFileUpload = async (file: File | null) => {
     if (!file) {
@@ -61,43 +97,44 @@ const Index = () => {
 
     setIsSearching(true);
     try {
+      console.log('Sending skills to /api/search-jobs:', skills);
       const response = await fetch(`${API_URL}/api/search-jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           skills,
           location: 'Remote',
-          max_jobs: 20
+          max_jobs: 20,
         }),
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error:', response.status, errorText);
         throw new Error(`Search failed: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      // Map snake_case to camelCase
-      const jobs: Job[] = data.map((job: any) => ({
-        ...job,
-        matchScore: job.match_score,
-        postedDate: job.posted_date,
-        jobType: job.job_type,
-        experienceLevel: job.experience_level,
-        source:
-          job.source === "Indeed"
-            ? "Indeed"
-            : job.source === "LinkedIn"
-            ? "LinkedIn"
-            : "Glassdoor",
-      }));
-      setJobResults(jobs);
-
-      toast({
-        title: "Job Search Complete!",
-        description: `Found ${jobs.length} potential job matches.`,
-      });
-      navigate('/jobmatch');
+      const data: JobResponse[] = await response.json();
+      console.log('API Response:', data);
+      const transformedJobs = transformJobResponse(data);
+      console.log('Transformed Jobs:', transformedJobs);
+      
+      if (transformedJobs.length === 0) {
+        toast({
+          title: "No Jobs Found",
+          description: "No matching jobs found for your skills. Try modifying your resume.",
+          variant: "destructive",
+        });
+      } else {
+        setJobResults(transformedJobs);
+        toast({
+          title: "Job Search Complete!",
+          description: `Found ${transformedJobs.length} potential job matches.`,
+        });
+        navigate('/jobmatch');
+      }
     } catch (error) {
+      console.error('Error in handleSkillsExtracted:', error);
       toast({
         title: "Error Searching Jobs",
         description: "Failed to fetch job listings. Please try again.",

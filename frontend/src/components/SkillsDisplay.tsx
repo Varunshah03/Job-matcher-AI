@@ -76,7 +76,8 @@ export const SkillsDisplay = ({ skills, isLoading = false, error }: SkillsDispla
     }
 
     try {
-      await axios.post('/api/add-user-skills', { skills: [trimmedSkill] });
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      await axios.post(`${API_URL}/api/add-user-skills`, { skills: [trimmedSkill] });
       setLocalSkills([...localSkills, trimmedSkill]);
       setNewSkill('');
       setErrorMessage('');

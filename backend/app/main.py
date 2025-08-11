@@ -1,20 +1,20 @@
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import logging
-from typing import List
+from typing import List, Optional
 from .core.resume_processor import ResumeProcessor
 from .core.skills_extractor import SkillsExtractor
 from .core.job_matcher import JobMatcher
 from .scrapers.scraper_manager import ScraperManager
 from .models.schemas import JobResponse, SkillsResponse, UploadResponse
 
-# Clear all existing handlers
+# Configure logging
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
-
-# Configure custom logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -22,8 +22,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.debug("Logging initialized for Job Matcher AI API")
-
-# Disable Uvicorn's default access logger
 logging.getLogger("uvicorn.access").disabled = True
 
 app = FastAPI(
@@ -32,7 +30,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"],
@@ -41,7 +38,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize core components
 resume_processor = ResumeProcessor()
 skills_extractor = SkillsExtractor()
 job_matcher = JobMatcher()
@@ -50,56 +46,42 @@ scraper_manager = ScraperManager()
 class SkillsInput(BaseModel):
     skills: List[str]
 
+class SearchJobsInput(BaseModel):
+    skills: List[str]
+    location: Optional[str] = "Remote"
+    max_jobs: Optional[int] = 20
+
 @app.post("/api/upload-resume", response_model=UploadResponse)
 async def upload_resume(file: UploadFile = File(...)):
     """Upload and process resume to extract text and skills"""
     logger.info(f"Received upload request for file: {file.filename}, size: {file.size} bytes")
     
     try:
-        # Validate file type
         if not file.filename.endswith(('.pdf', '.docx')):
             logger.error(f"Invalid file type for {file.filename}. Supported types: .pdf, .docx")
-            raise HTTPException(
-                status_code=400, 
-                detail="Only PDF and DOCX files are supported"
-            )
+            raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported")
         
-        # Validate file size (10MB max)
         if file.size > 10 * 1024 * 1024:
             logger.error(f"File {file.filename} exceeds 10MB limit (size: {file.size} bytes)")
-            raise HTTPException(
-                status_code=400, 
-                detail="File size must be less than 10MB"
-            )
+            raise HTTPException(status_code=400, detail="File size must be less than 10MB")
         
-        # Read file content
         content = await file.read()
-        
-        # Extract text from resume
         logger.info(f"Starting text extraction for {file.filename}")
         try:
             resume_text = await resume_processor.extract_text(content, file.filename)
         except Exception as e:
             logger.error(f"Text extraction failed for {file.filename}: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Text extraction failed: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"Text extraction failed: {str(e)}")
         logger.info(f"Extracted text ({len(resume_text)} characters): {resume_text}")
         
         if not resume_text or len(resume_text.strip()) < 50:
             logger.error(f"Insufficient text extracted from {file.filename}: {len(resume_text)} characters")
-            raise HTTPException(
-                status_code=400, 
-                detail="Could not extract sufficient text from resume. Please ensure the file is not corrupted."
-            )
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text from resume.")
         
-        # Extract skills from resume text
         logger.info(f"Starting skills extraction for {file.filename}")
         extracted_skills = await skills_extractor.extract_skills(resume_text)
         logger.info(f"Extracted {len(extracted_skills)} skills from {file.filename}: {extracted_skills}")
         
-        # Log all extracted resume data
         logger.info(f"Extracted resume data: filename={file.filename}, size={file.size} bytes, extracted_text_length={len(resume_text)} characters, skills={extracted_skills}")
         
         response = UploadResponse(
@@ -133,42 +115,38 @@ async def add_user_skills(skills_input: SkillsInput):
         raise HTTPException(status_code=500, detail="Failed to add skills")
 
 @app.post("/api/search-jobs", response_model=List[JobResponse])
-async def search_jobs(
-    background_tasks: BackgroundTasks,
-    skills: List[str],
-    location: str = "Remote",
-    max_jobs: int = 20
-):
+async def search_jobs(input: SearchJobsInput, background_tasks: BackgroundTasks):
     """Search for jobs based on extracted skills"""
     try:
-        if not skills:
+        if not input.skills:
             raise HTTPException(status_code=400, detail="Skills list cannot be empty")
         
-        # Use top 5 skills for searching
-        search_skills = skills[:5]
+        logger.info(f"Searching jobs with {len(input.skills)} skills: {input.skills}")
         
-        # Start job scraping in background
         scraped_jobs = await scraper_manager.scrape_all_platforms(
-            skills=search_skills,
-            location=location,
-            max_jobs_per_platform=max_jobs // 3
+            skills=input.skills,
+            location=input.location,
+            max_jobs_per_platform=input.max_jobs // 3
         )
         
         if not scraped_jobs:
+            logger.warning("No jobs scraped from any platform")
             return []
         
-        # Match and rank jobs
         matched_jobs = await job_matcher.match_and_rank_jobs(
             jobs=scraped_jobs,
-            user_skills=skills,
-            max_results=max_jobs
+            user_skills=input.skills,
+            max_results=input.max_jobs
         )
         
+        logger.info(f"Returning {len(matched_jobs)} matched jobs")
         return matched_jobs
         
     except HTTPException as e:
+        logger.error(f"HTTP error in search_jobs: {str(e)}")
         raise
     except Exception as e:
+        logger.error(f"Unexpected error searching jobs: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error searching jobs: {str(e)}")
 
 @app.get("/api/skills/extract-from-text", response_model=SkillsResponse)
@@ -178,6 +156,7 @@ async def extract_skills_from_text(text: str):
         skills = await skills_extractor.extract_skills(text)
         return SkillsResponse(skills=skills)
     except Exception as e:
+        logger.error(f"Error extracting skills: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error extracting skills: {str(e)}")
 
 @app.get("/api/health")

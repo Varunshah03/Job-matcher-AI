@@ -10,7 +10,7 @@ interface JobResultsProps {
   isLoading?: boolean;
 }
 
-export const JobResults = ({ jobs, isLoading = false }: JobResultsProps) => {
+const JobResults = ({ jobs, isLoading = false }: JobResultsProps) => {
   const [sortBy, setSortBy] = useState('match');
   const [filterBySource, setFilterBySource] = useState('all');
 
@@ -72,24 +72,27 @@ export const JobResults = ({ jobs, isLoading = false }: JobResultsProps) => {
   let filteredJobs = jobs;
   
   if (filterBySource !== 'all') {
-    filteredJobs = jobs.filter(job => job.source.toLowerCase() === filterBySource);
+    filteredJobs = jobs.filter(job => job.source.toLowerCase() === filterBySource.toLowerCase());
   }
 
   const sortedJobs = [...filteredJobs].sort((a, b) => {
     switch (sortBy) {
       case 'match':
-        return b.matchScore - a.matchScore;
+        return b.match_score - a.match_score;
       case 'date':
-        return new Date(b.postedDate).getTime() - new Date(a.postedDate).getTime();
+        // Handle non-date strings like "2 days ago"
+        const dateA = a.posted_date.includes('ago') ? new Date() : new Date(a.posted_date);
+        const dateB = b.posted_date.includes('ago') ? new Date() : new Date(b.posted_date);
+        return dateB.getTime() - dateA.getTime();
       case 'company':
         return a.company.localeCompare(b.company);
       default:
-        return b.matchScore - a.matchScore;
+        return b.match_score - a.match_score;
     }
   });
 
-  const averageMatch = Math.round(jobs.reduce((sum, job) => sum + job.matchScore, 0) / jobs.length);
-  const highMatches = jobs.filter(job => job.matchScore >= 80).length;
+  const averageMatch = Math.round(jobs.reduce((sum, job) => sum + job.match_score, 0) / jobs.length);
+  const highMatches = jobs.filter(job => job.match_score >= 80).length;
 
   return (
     <div className="space-y-6">
@@ -164,3 +167,5 @@ export const JobResults = ({ jobs, isLoading = false }: JobResultsProps) => {
     </div>
   );
 };
+
+export default JobResults;

@@ -430,3 +430,39 @@ class SkillsExtractor:
         ranked_skills = sorted(skills, key=lambda x: skill_scores.get(x, 0), reverse=True)
         logger.debug(f"Ranked {len(ranked_skills)} skills")
         return ranked_skills
+
+    async def _save_dynamic_skill(self, skill: str) -> bool:
+        """Save a new skill to the dynamic skills database"""
+        try:
+            import json
+            import os
+            
+            # Path to dynamic skills file
+            dynamic_skills_path = os.path.join(os.path.dirname(__file__), '..', '..', 'dynamic_skills.json')
+            
+            # Load existing dynamic skills
+            if os.path.exists(dynamic_skills_path):
+                with open(dynamic_skills_path, 'r') as f:
+                    dynamic_skills = json.load(f)
+            else:
+                dynamic_skills = {"user_added_skills": []}
+            
+            # Add new skill if not already present
+            skill_cleaned = self._clean_skill_name(skill)
+            if skill_cleaned and skill_cleaned not in dynamic_skills["user_added_skills"]:
+                dynamic_skills["user_added_skills"].append(skill_cleaned)
+                
+                # Save back to file
+                with open(dynamic_skills_path, 'w') as f:
+                    json.dump(dynamic_skills, f, indent=2)
+                
+                # Also add to the in-memory skills database
+                self.all_skills.add(skill_cleaned.lower())
+                
+                logger.info(f"Successfully saved dynamic skill: {skill_cleaned}")
+                return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error saving dynamic skill '{skill}': {str(e)}")
+            return False

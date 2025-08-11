@@ -11,11 +11,14 @@ export interface Job {
   location: string;
   description: string;
   requirements: string[];
-  matchScore: number;
-  postedDate: string;
-  source: 'Indeed' | 'LinkedIn' | 'Glassdoor';
+  skills: string[];
+  match_score: number;
+  posted_date: string;
+  source: string;
   url: string;
   salary?: string;
+  jobType?: string;
+  experienceLevel?: string;
 }
 
 interface JobCardProps {
@@ -56,13 +59,13 @@ export const JobCard = ({ job }: JobCardProps) => {
           <div className="text-right shrink-0">
             <div className={cn(
               "inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium",
-              getMatchColor(job.matchScore)
+              getMatchColor(job.match_score)
             )}>
               <Star className="w-3 h-3" />
-              {job.matchScore}%
+              {job.match_score}%
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              {getMatchLabel(job.matchScore)}
+              {getMatchLabel(job.match_score)}
             </div>
           </div>
         </div>
@@ -101,7 +104,7 @@ export const JobCard = ({ job }: JobCardProps) => {
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <Clock className="w-3 h-3" />
-              {job.postedDate}
+              {job.posted_date}
             </div>
             <Badge variant="outline" className="text-xs">
               {job.source}
