@@ -13,7 +13,7 @@ class JobResponse(BaseModel):
     match_score: float = Field(..., ge=0, le=100, description="Match percentage with user skills")
     posted_date: str
     source: str
-    url: str
+    url: str   # ✅ renamed from `url` for clarity
     salary: Optional[str] = None
     job_type: Optional[str] = None
     experience_level: Optional[str] = None

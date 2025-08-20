@@ -1,180 +1,343 @@
-from dotenv import load_dotenv
-load_dotenv()
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+# backend/main.py - FastAPI Backend for Scraper Integration
+
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import uvicorn
+from typing import List, Optional, Dict
+import asyncio
+import hashlib
+import time
+from datetime import datetime
 import logging
-from typing import List, Optional
-from .core.resume_processor import ResumeProcessor
-from .core.skills_extractor import SkillsExtractor
-from .core.job_matcher import JobMatcher
-from .scrapers.scraper_manager import ScraperManager
-from .models.schemas import JobResponse, SkillsResponse, UploadResponse
 
-# Configure logging
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
-logger = logging.getLogger(__name__)
-logger.debug("Logging initialized for Job Matcher AI API")
-logging.getLogger("uvicorn.access").disabled = True
+# Your existing scraper imports
+# from scrapers.linkedin_scraper import LinkedInScraper
+# from scrapers.indeed_scraper import IndeedScraper
+# from scrapers.glassdoor_scraper import GlassdoorScraper
+# ... import other scrapers
 
-app = FastAPI(
-    title="Job Matcher AI API",
-    description="AI-powered job matching platform backend",
-    version="1.0.0"
-)
+app = FastAPI(title="Job Matcher AI - Scraper Integration API")
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"],
+    allow_origins=["http://localhost:3000", "http://localhost:8080"],  # Your frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-resume_processor = ResumeProcessor()
-skills_extractor = SkillsExtractor()
-job_matcher = JobMatcher()
-scraper_manager = ScraperManager()
+# Pydantic models
+class JobSearchRequest(BaseModel):
+    title: str
+    company: str
+    location: Optional[str] = None
+    platform: str
 
-class SkillsInput(BaseModel):
-    skills: List[str]
+class ScrapedJob(BaseModel):
+    id: str
+    title: str
+    company: str
+    location: str
+    url: str
+    description: str
+    salary: Optional[str] = None
+    posted_date: str
+    requirements: List[str] = []
+    platform: str
+    match_score: Optional[int] = None
 
-class SearchJobsInput(BaseModel):
-    skills: List[str]
-    location: Optional[str] = "Remote"
-    max_jobs: Optional[int] = 20
+class JobSearchResponse(BaseModel):
+    success: bool
+    job_count: int
+    jobs: List[ScrapedJob] = []
+    platform: str
+    search_time: float
+    error: Optional[str] = None
+    search_url: str
 
-@app.post("/api/upload-resume", response_model=UploadResponse)
-async def upload_resume(file: UploadFile = File(...)):
-    """Upload and process resume to extract text and skills"""
-    logger.info(f"Received upload request for file: {file.filename}, size: {file.size} bytes")
+class ScraperStatus(BaseModel):
+    platform: str
+    is_active: bool
+    last_used: Optional[datetime] = None
+    success_rate: float
+    requests_today: int
+
+# Mock scraper functions - Replace with your actual scrapers
+async def mock_scrape_platform(platform: str, title: str, company: str, location: str = None) -> JobSearchResponse:
+    """Mock scraper function - replace with your actual scraper logic"""
+    
+    start_time = time.time()
+    
+    # Simulate scraping delay
+    await asyncio.sleep(1 + (hash(platform) % 3))  # 1-4 seconds delay
+    
+    # Generate search URL
+    search_urls = {
+        "linkedin": f"https://www.linkedin.com/jobs/search/?keywords={title} {company}",
+        "indeed": f"https://www.indeed.com/jobs?q={title} {company}",
+        "glassdoor": f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={title} {company}",
+        "naukri": f"https://www.naukri.com/jobs?qp={title} {company}",
+        "foundit": f"https://www.foundit.in/jobs/{title} {company}",
+        "dice": f"https://www.dice.com/jobs?q={title} {company}",
+        "ziprecruiter": f"https://www.ziprecruiter.com/Jobs?search={title} {company}",
+        "himalayas": f"https://himalayas.app/jobs?q={title} {company}",
+        "careerbuilder": f"https://www.careerbuilder.com/jobs?keywords={title} {company}"
+    }
+    
+    # Simulate different success rates for different platforms
+    success_rates = {
+        "linkedin": 0.9,
+        "indeed": 0.95,
+        "glassdoor": 0.8,
+        "naukri": 0.85,
+        "foundit": 0.7,
+        "dice": 0.8,
+        "ziprecruiter": 0.85,
+        "himalayas": 0.9,
+        "careerbuilder": 0.75
+    }
+    
+    platform_success_rate = success_rates.get(platform, 0.8)
+    is_successful = hash(f"{platform}{title}{company}") % 100 < (platform_success_rate * 100)
+    
+    if not is_successful:
+        return JobSearchResponse(
+            success=False,
+            job_count=0,
+            platform=platform,
+            search_time=time.time() - start_time,
+            error=f"Scraper temporarily unavailable for {platform}",
+            search_url=search_urls.get(platform, "")
+        )
+    
+    # Generate mock job results
+    job_count = hash(f"{title}{company}{platform}") % 25 + 1  # 1-25 jobs
+    jobs = []
+    
+    for i in range(min(job_count, 10)):  # Limit to 10 jobs in response
+        job_id = hashlib.md5(f"{platform}{title}{company}{i}".encode()).hexdigest()[:12]
+        
+        jobs.append(ScrapedJob(
+            id=job_id,
+            title=f"{title} - {platform.title()} Listing {i+1}",
+            company=company,
+            location=location or "Remote",
+            url=f"{search_urls.get(platform, '')}#job-{job_id}",
+            description=f"We are looking for an experienced {title} to join our team at {company}. This is a great opportunity to work with cutting-edge technologies.",
+            salary=f"${50000 + (hash(job_id) % 50000):,} - ${80000 + (hash(job_id) % 70000):,}" if i % 3 == 0 else None,
+            posted_date=(datetime.now().isoformat().split('T')[0]),
+            requirements=["Python", "React", "TypeScript", "AWS", "Docker"][:3 + (i % 3)],
+            platform=platform,
+            match_score=70 + (hash(job_id) % 30)  # 70-100% match
+        ))
+    
+    return JobSearchResponse(
+        success=True,
+        job_count=job_count,
+        jobs=jobs,
+        platform=platform,
+        search_time=time.time() - start_time,
+        search_url=search_urls.get(platform, "")
+    )
+
+# API Endpoints
+
+@app.post("/api/scrapers/{platform}/search", response_model=JobSearchResponse)
+async def search_jobs_on_platform(
+    platform: str, 
+    request: JobSearchRequest,
+    background_tasks: BackgroundTasks
+):
+    """Search for jobs on a specific platform using scrapers"""
     
     try:
-        if not file.filename.endswith(('.pdf', '.docx')):
-            logger.error(f"Invalid file type for {file.filename}. Supported types: .pdf, .docx")
-            raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported")
+        # Validate platform
+        supported_platforms = [
+            "linkedin", "indeed", "glassdoor", "naukri", 
+            "foundit", "dice", "ziprecruiter", "himalayas", "careerbuilder"
+        ]
         
-        if file.size > 10 * 1024 * 1024:
-            logger.error(f"File {file.filename} exceeds 10MB limit (size: {file.size} bytes)")
-            raise HTTPException(status_code=400, detail="File size must be less than 10MB")
+        if platform not in supported_platforms:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Platform '{platform}' not supported. Supported platforms: {supported_platforms}"
+            )
         
-        content = await file.read()
-        logger.info(f"Starting text extraction for {file.filename}")
-        try:
-            resume_text = await resume_processor.extract_text(content, file.filename)
-        except Exception as e:
-            logger.error(f"Text extraction failed for {file.filename}: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Text extraction failed: {str(e)}")
-        logger.info(f"Extracted text ({len(resume_text)} characters): {resume_text}")
+        # Log the search request
+        logging.info(f"Searching {platform} for: {request.title} at {request.company}")
         
-        if not resume_text or len(resume_text.strip()) < 50:
-            logger.error(f"Insufficient text extracted from {file.filename}: {len(resume_text)} characters")
-            raise HTTPException(status_code=400, detail="Could not extract sufficient text from resume.")
+        # Call the appropriate scraper based on platform
+        if platform == "linkedin":
+            # result = await your_linkedin_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "indeed":
+            # result = await your_indeed_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "glassdoor":
+            # result = await your_glassdoor_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "naukri":
+            # result = await your_naukri_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "foundit":
+            # result = await your_foundit_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "dice":
+            # result = await your_dice_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "ziprecruiter":
+            # result = await your_ziprecruiter_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "himalayas":
+            # result = await your_himalayas_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
+        elif platform == "careerbuilder":
+            # result = await your_careerbuilder_scraper.search(request.title, request.company, request.location)
+            result = await mock_scrape_platform(platform, request.title, request.company, request.location)
         
-        logger.info(f"Starting skills extraction for {file.filename}")
-        extracted_skills = await skills_extractor.extract_skills(resume_text)
-        logger.info(f"Extracted {len(extracted_skills)} skills from {file.filename}: {extracted_skills}")
+        # Add background task to save results to database
+        background_tasks.add_task(save_search_results, platform, request, result)
         
-        logger.info(f"Extracted resume data: filename={file.filename}, size={file.size} bytes, extracted_text_length={len(resume_text)} characters, skills={extracted_skills}")
+        return result
         
-        response = UploadResponse(
-            success=True,
-            message="Resume processed successfully",
-            filename=file.filename,
-            extracted_text=resume_text[:500] + "..." if len(resume_text) > 500 else resume_text,
-            skills=extracted_skills
+    except Exception as e:
+        logging.error(f"Error scraping {platform}: {str(e)}")
+        return JobSearchResponse(
+            success=False,
+            job_count=0,
+            platform=platform,
+            search_time=0,
+            error=f"Scraping failed: {str(e)}",
+            search_url=""
         )
-        logger.info(f"Returning response: success={response.success}, skills_count={len(response.skills)}")
-        return response
-        
-    except HTTPException as e:
-        logger.error(f"HTTP error during resume processing: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error processing resume {file.filename}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing resume: {str(e)}")
 
-@app.post("/api/add-user-skills")
-async def add_user_skills(skills_input: SkillsInput):
-    """Add user-validated skills to dynamic database"""
+@app.post("/api/scrapers/multi-search")
+async def search_multiple_platforms(
+    request: JobSearchRequest,
+    platforms: List[str],
+    background_tasks: BackgroundTasks
+):
+    """Search across multiple platforms simultaneously"""
+    
     try:
-        for skill in skills_input.skills:
-            cleaned_skill = skills_extractor._clean_skill_name(skill)
-            if skills_extractor._is_valid_skill(cleaned_skill, ""):
-                await skills_extractor._save_dynamic_skill(cleaned_skill)
-        return {"message": "Skills added successfully"}
+        # Create tasks for parallel scraping
+        tasks = []
+        for platform in platforms:
+            task = search_jobs_on_platform(platform, request, background_tasks)
+            tasks.append(task)
+        
+        # Execute all scrapers in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        successful_results = []
+        failed_platforms = []
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failed_platforms.append(platforms[i])
+            else:
+                successful_results.append(result)
+        
+        return {
+            "success": len(successful_results) > 0,
+            "results": successful_results,
+            "failed_platforms": failed_platforms,
+            "total_jobs": sum(r.job_count for r in successful_results if r.success)
+        }
+        
     except Exception as e:
-        logger.error(f"Error adding user skills: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to add skills")
+        raise HTTPException(status_code=500, detail=f"Multi-platform search failed: {str(e)}")
 
-@app.post("/api/search-jobs", response_model=List[JobResponse])
-async def search_jobs(input: SearchJobsInput, background_tasks: BackgroundTasks):
-    """Search for jobs based on extracted skills"""
-    try:
-        if not input.skills:
-            raise HTTPException(status_code=400, detail="Skills list cannot be empty")
-        
-        logger.info(f"Searching jobs with {len(input.skills)} skills: {input.skills}")
-        
-        scraped_jobs = await scraper_manager.scrape_all_platforms(
-            skills=input.skills,
-            location=input.location,
-            max_jobs_per_platform=input.max_jobs // 3
+@app.get("/api/scrapers/status")
+async def get_scraper_status():
+    """Get status of all scrapers"""
+    
+    platforms = [
+        "linkedin", "indeed", "glassdoor", "naukri", 
+        "foundit", "dice", "ziprecruiter", "himalayas", "careerbuilder"
+    ]
+    
+    status_list = []
+    for platform in platforms:
+        # Replace with actual status checking logic
+        status = ScraperStatus(
+            platform=platform,
+            is_active=True,  # Check if scraper is working
+            last_used=datetime.now(),
+            success_rate=0.85 + (hash(platform) % 15) / 100,  # Mock success rate
+            requests_today=hash(platform) % 100  # Mock request count
         )
-        
-        if not scraped_jobs:
-            logger.warning("No jobs scraped from any platform")
-            return []
-        
-        matched_jobs = await job_matcher.match_and_rank_jobs(
-            jobs=scraped_jobs,
-            user_skills=input.skills,
-            max_results=input.max_jobs
-        )
-        
-        logger.info(f"Returning {len(matched_jobs)} matched jobs")
-        return matched_jobs
-        
-    except HTTPException as e:
-        logger.error(f"HTTP error in search_jobs: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error searching jobs: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error searching jobs: {str(e)}")
+        status_list.append(status)
+    
+    return {"scrapers": status_list}
 
-@app.get("/api/skills/extract-from-text", response_model=SkillsResponse)
-async def extract_skills_from_text(text: str):
-    """Extract skills from provided text"""
+@app.get("/api/scrapers/analytics")
+async def get_scraper_analytics(timeframe: str = "day"):
+    """Get scraper performance analytics"""
+    
     try:
-        skills = await skills_extractor.extract_skills(text)
-        return SkillsResponse(skills=skills)
+        # Replace with actual analytics from your database
+        mock_analytics = {
+            "timeframe": timeframe,
+            "total_searches": 1250,
+            "successful_searches": 1062,
+            "failed_searches": 188,
+            "success_rate": 85.0,
+            "average_response_time": 2.3,
+            "platform_breakdown": {
+                "linkedin": {"searches": 245, "success_rate": 92.0},
+                "indeed": {"searches": 198, "success_rate": 89.0},
+                "glassdoor": {"searches": 156, "success_rate": 78.0},
+                "naukri": {"searches": 134, "success_rate": 82.0},
+                "foundit": {"searches": 98, "success_rate": 75.0},
+                "dice": {"searches": 87, "success_rate": 80.0},
+                "ziprecruiter": {"searches": 76, "success_rate": 85.0},
+                "himalayas": {"searches": 145, "success_rate": 91.0},
+                "careerbuilder": {"searches": 111, "success_rate": 77.0}
+            }
+        }
+        
+        return mock_analytics
+        
     except Exception as e:
-        logger.error(f"Error extracting skills: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error extracting skills: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Analytics retrieval failed: {str(e)}")
 
-@app.get("/api/health")
+# Background tasks
+async def save_search_results(platform: str, request: JobSearchRequest, result: JobSearchResponse):
+    """Save search results to database for analytics"""
+    
+    try:
+        # Replace with actual database saving logic
+        search_record = {
+            "platform": platform,
+            "search_query": f"{request.title} {request.company}",
+            "location": request.location,
+            "timestamp": datetime.now().isoformat(),
+            "success": result.success,
+            "job_count": result.job_count,
+            "search_time": result.search_time,
+            "error": result.error
+        }
+        
+        # Save to your database
+        # await db.searches.insert_one(search_record)
+        logging.info(f"Saved search record for {platform}: {search_record}")
+        
+    except Exception as e:
+        logging.error(f"Failed to save search results: {str(e)}")
+
+# Health check endpoint
+@app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "message": "Job Matcher AI API is running",
-        "version": "1.0.0"
-    }
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    logging.info("Job Matcher AI Scraper API started successfully")
 
 if __name__ == "__main__":
-    logger.info("Starting Job Matcher AI API server")
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info",
-        log_config=None
-    )
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
